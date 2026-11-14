@@ -1,0 +1,61 @@
+name: Build Spidy TTS APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The project source ships as base64 parts (project.tar.gz.b64.part*):
+      # the push route used for this repo only carries text files, so the
+      # Android PNGs travel inside the tarball instead of as binary blobs.
+      - name: Unpack project snapshot
+        run: |
+          cat project.tar.gz.b64.part* > project.tar.gz.b64
+          base64 -d project.tar.gz.b64 > /tmp/project.tar.gz
+          tar xzf /tmp/project.tar.gz
+          ls
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install JS deps, build web, sync Capacitor
+        run: |
+          npm ci
+          npm run build
+          npx cap sync android
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install Android SDK components
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
+      - name: Set up Gradle 8.14.3
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.14.3
+
+      - name: Build debug APK
+        run: |
+          cd android
+          gradle assembleDebug --no-daemon
+
+      - name: Upload APK as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spidy-tts-apk
+          path: android/app/build/outputs/apk/debug/*.apk
